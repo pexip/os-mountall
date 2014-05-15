@@ -1,39 +1,234 @@
-mountall (2.36.4) precise-proposed; urgency=low
+mountall (2.54) unstable; urgency=medium
 
-  * Ensure callbacks are called directly when running with --no-events,
-    otherwise the "event" handling of the non-events never finishes and
-    mountall hangs.  LP: #1099349.
+  * conf/mounted-proc.conf: /proc/slabinfo may not exist, in which case we
+    should avoid trying to chmod it and generating spurious errors in the
+    log.  LP: #1319724.
 
- -- Steve Langasek <steve.langasek@ubuntu.com>  Wed, 16 Jan 2013 17:13:23 -0800
+ -- Steve Langasek <vorlon@debian.org>  Thu, 15 May 2014 07:54:40 -0700
 
-mountall (2.36.3) precise-proposed; urgency=low
+mountall (2.53) unstable; urgency=medium
 
+  [ James Hunt ]
+  * man/mountall.8:
+    - Added SEE ALSO section.
+    - Updated date and copyright.
+    - Remove comments about mountall being a temporary tool
+      since this is not true (it's been "temporary" since 2009) and it
+      undermines its current importance.
+    - Reworked DESCRIPTION and made mention of /lib/init/fstab.
+
+  [ Steve Langasek ]
+  * conf/mounted-run.conf: the dynamic motd location used by PAM has changed
+    to /run/motd.dynamic; update the job to match.
+
+ -- Steve Langasek <vorlon@debian.org>  Wed, 19 Feb 2014 16:17:14 -0800
+
+mountall (2.52) unstable; urgency=low
+
+  * Don't emit extra 'mounting' events for mounts already in progress; this
+    will cause double triggering of some jobs for remote filesystems, and
+    can also cause us to miss 'mounted' events.  LP: #1048017.
+  * Fix mountall upstart job to not start a subshell for reading
+    /proc/cmdline, since this causes upstart to lose track of the daemon
+    process and leaves mountall-net unable to signal it to retry network
+    mounts.  LP: #1235013.
+
+ -- Steve Langasek <vorlon@debian.org>  Wed, 09 Oct 2013 04:12:51 +0000
+
+mountall (2.51) unstable; urgency=low
+
+  * Fix tagging of filesystems to not have local/remote inheritance
+    overridden; otherwise we will mis-tag various mounts and deadlock the
+    boot.  Also fixes an inconsistency with the inheritance of
+    'bootwait'/'nobootwait' flags depending on the order of mounts in
+    /etc/fstab: we now always treat the 'nobootwait' flag as applying to
+    submounts. LP: #1223745, LP: #1153672.
+
+ -- Steve Langasek <vorlon@debian.org>  Fri, 13 Sep 2013 22:23:55 -0700
+
+mountall (2.50) unstable; urgency=low
+
+  * Add support for pstore.  Closes: #722212.
+  * Allow multiple fstab entries with the same mountpoint: we still mask
+    any entries that came from a different source (i.e., /etc/fstab will
+    mask /lib/init/fstab), but if there are multiple entries in /etc/fstab,
+    treat them all as separate mounts instead of letting the last one win.
+    LP: #503003.
+  * Don't set 'console output' anymore; now that we have upstart logging by
+    default, logs will be captured and (assuming /var/log becomes writable
+    at some point) mountall is debuggable without having to spew text to the
+    console.
+  * Support reading --verbose/--debug options from /proc/cmdline, so that
+    we can give users a better way to debug mountall without having to
+    edit the upstart job.
+  * Since everything is in a single event loop, a request from plymouth to
+    skip a mount may come in after the mount has already happened.  So don't
+    assert on a bogus request, just treat it as a no-op and continue.
+    LP: #731800.
+
+ -- Steve Langasek <vorlon@debian.org>  Tue, 10 Sep 2013 04:01:19 +0000
+
+mountall (2.49) unstable; urgency=low
+
+  [ James Hunt ]
+  * apport/mountall.py: add a mountall apport hook.
+
+  [ Steve Langasek ]
+  * Ignore parse errors in /etc/default/rcS or /etc/default/locale; these
+    problems shouldn't be allowed to prevent the system from booting.
+    LP: #1192514.
+
+ -- Steve Langasek <vorlon@debian.org>  Tue, 02 Jul 2013 15:51:12 -0700
+
+mountall (2.48) unstable; urgency=low
+
+  [ Steve Langasek ]
+  * Make sure we don't show the error message claiming a device is not
+    ready when we're actually already handling it but are just waiting for
+    related upstart jobs that are blocking the mount to finish.
+    LP: #1091792.
+
+  [ Stéphane Graber ]
+  * Mount a tmpfs on /sys/fs/cgroup if it exists.
+
+ -- Steve Langasek <vorlon@debian.org>  Sat, 09 Mar 2013 00:36:22 +0000
+
+mountall (2.47) unstable; urgency=low
+
+  [ Dave Chiluk ]
   * Adjust parsing of options so mountall doesn't strip options that are
     substrings of these strings (showthrough, optional, bootwait, nobootwait
     or timeout). This fixes the issue where timeo was getting stripped from
     nfs mounts. LP: #1041377.
 
- -- Dave Chiluk <dave.chiluk@canonical.com>  Wed, 19 Dec 2012 10:21:43 -0600
+  [ Steve Langasek ]
+  * Ensure callbacks are called directly when running with --no-events,
+    otherwise the "event" handling of the non-events never finishes and
+    mountall hangs.  LP: #1099349.
 
-mountall (2.36.2) precise-proposed; urgency=low
+ -- Steve Langasek <vorlon@debian.org>  Mon, 14 Jan 2013 16:37:36 -0800
 
-  * Fix a remaining issue with making the mounting and mounted events fully
-    asynchronous.  LP: #1078926.
+mountall (2.46) unstable; urgency=low
 
- -- Steve Langasek <steve.langasek@ubuntu.com>  Mon, 03 Dec 2012 23:44:16 +0000
+  * Fix a further remaining issue from 2.41: by fixing the missing 'mounted'
+    events in 2.43, we have again introduced a case where mountall may block
+    waiting for 'mounted MOUNTPOINT=/' to return before handling 'mounted
+    MOUNTPOINT=/run' and emitting virtual-filesystems, thus causing
+    dependency loops and long boot timeouts.  LP: #1078926.
 
-mountall (2.36.1) precise-proposed; urgency=low
+ -- Steve Langasek <vorlon@debian.org>  Mon, 03 Dec 2012 23:44:16 +0000
 
-  * Add options to mountall(8) manual page.  LP: #805509.
-  * Allow 'mounting' and 'mounted' signals from unrelated mounts to be
-    processed in parallel.  Thanks to Alexander Achenbach for the initial
-    patch.  LP: #643289.
+mountall (2.45) unstable; urgency=low
+
+  [ Serge Hallyn ]
+  * mounted-dev.conf: leave consoles alone in a lxc or libvirt container
+    (LP: #1075717)
+
+ -- Steve Langasek <steve.langasek@ubuntu.com>  Wed, 28 Nov 2012 22:07:18 -0800
+
+mountall (2.44) unstable; urgency=low
+
+  * conf/{checkfs,checkroot-bootclean,checkroot,mountall-bootclean}.sh.conf,
+    conf/{mountnfs-bootclean,mtab,bootmisc}.sh.conf: additional null jobs
+    for compatibility with pre-existing sysvinit script names, so that the
+    sysvinit scripts aren't run.  This speeds up the boot, improves
+    compatibility with insserv, and guards against e.g.,
+    mountall-bootclean.sh running after /run is already in use by ifupdown.
+
+ -- Steve Langasek <vorlon@debian.org>  Fri, 16 Nov 2012 01:05:31 +0000
+
+mountall (2.43) unstable; urgency=low
+
+  * Fix a regression introduced in 2.41: parse_mountinfo() doesn't 
+    generate a mounted event for a filesystem whose canonicalized
+    mountpoint doesn't match the mountpoint specified in /etc/fstab.  So
+    we still need to call mounted() explicitly for this case.  LP: #1059471.
+
+ -- Steve Langasek <vorlon@debian.org>  Tue, 06 Nov 2012 01:03:12 -0800
+
+mountall (2.42) unstable; urgency=low
 
   [ Andy Whitcroft ]
   * Add support for mounting the efivars filesystem onto
     /sys/firmware/efi/efivars.  LP: #1063061.
 
- -- Steve Langasek <steve.langasek@ubuntu.com>  Thu, 08 Nov 2012 00:29:40 -0800
+  [ Steve Langasek ]
+  * mount events now happen so much in parallel that /etc/mtab may not get
+    updated due to races between 'mounted' events.  Explicitly track the
+    list of mounts that are in need of fake-remounting and make sure mount -f
+    gets called for them if they missed the boat. LP: #1060296
+
+ -- Steve Langasek <vorlon@debian.org>  Tue, 09 Oct 2012 12:32:56 -0700
+
+mountall (2.41) unstable; urgency=low
+
+  [ Alexander Achenbach ]
+  * Don't block other, unrelated mounts from being processed while one
+    mount is blocked on its mounting signal to process.  LP: #643289.
+
+  [ Steve Langasek ]
+  * Likewise, allow 'mounted' signals to be processed in parallel with
+    other unrelated mounts.
+
+ -- Steve Langasek <vorlon@debian.org>  Tue, 25 Sep 2012 23:21:59 -0700
+
+mountall (2.40) unstable; urgency=low
+
+  * Add /run/user as a default mountpoint, in support of $XDG_RUNTIME_DIR.
+    LP: #894391.
+
+ -- Steve Langasek <vorlon@debian.org>  Fri, 31 Aug 2012 19:55:01 -0700
+
+mountall (2.39) unstable; urgency=low
+
+  * Adjust parsing of device names so that network mounts pointing to the
+    server's root don't have the path mis-normalized to the empty string.
+    Thanks to Damien Churchill <damien.churchill@ukplc.net> for the initial
+    implementation.  LP: #809221.
+  * Add compatibility jobs with names to match the historic sysvinit init
+    scripts, so that startpar can DTRT.
+
+ -- Steve Langasek <vorlon@debian.org>  Fri, 31 Aug 2012 18:31:19 +0000
+
+mountall (2.38) unstable; urgency=low
+
+  * Counterproductively document in debian/copyright the license of files in
+    intl that form no part of the binary package, to get through the Debian
+    NEW queue.
+
+ -- Steve Langasek <vorlon@debian.org>  Sat, 30 Jun 2012 11:44:59 -0700
+
+mountall (2.37) unstable; urgency=low
+
+  * Initial upload to Debian.
+  * Document the branch location with Vcs-Bzr.
+  * Mark myself as maintainer, with Scott and James as uploaders.
+  * Drop maintainer scripts, only used for upgrades from natty and earlier
+    and no longer relevant post-precise.
+  * Replace build flag handling in debian/rules with debhelper compat 9 and
+    dpkg-buildflags.
+  * Remove extra space in fsck progress message.  LP: #573304.
+  * Adjust build-dependencies for the differing plymouth -dev package name
+    in Debian vs. Ubuntu.
+  * Fix an inverted check for whether the change-mount mntctl has a
+    different device name.
+  * Update standards-version to 3.9.3.
+  * debian/copyright: copyright-format 1.0, and link explicitly to the GPL-2
+    license file since that's what applies.
+
+  [ Raphaël Pinson ]
+  * Honor nobootwait option for /var/* and /usr/* remote filesystems.
+    LP: #654545
+
+  [ Eelco Dolstra ]
+  * Install the SIGUSR1 signal handler before daemonizing mountall, so that
+    there's no race with signals from network interfaces being brought up.
+    LP: #960079.
+
+  [ Adam Gleichsner ]
+  * Add options to mountall(8) manual page.  LP: #805509.
+
+ -- Steve Langasek <vorlon@debian.org>  Thu, 28 Jun 2012 19:35:33 +0000
 
 mountall (2.36) precise; urgency=low
 

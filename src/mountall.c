@@ -143,6 +143,7 @@ struct mount {
 	Mount *             link_target;
 	NihList             deps;
 	int                 needs_mtab;
+	char *              src;
 };
 
 #define MOUNT_NAME(_mnt) (strcmp ((_mnt)->type, "swap")			\
@@ -167,7 +168,8 @@ typedef struct event_reply_data {
 } EventReplyData;
 
 Mount *new_mount             (const char *mountpoint, const char *device,
-			      int check, const char *type, const char *opts);
+			      int check, const char *type, const char *opts,
+			      const char *src);
 Mount *find_mount            (const char *mountpoint);
 void   update_mount          (Mount *mnt, const char *device, int check,
 			      const char *type, const char *opts);
@@ -459,7 +461,8 @@ new_mount (const char *mountpoint,
 	   const char *device,
 	   int         check,
 	   const char *type,
-	   const char *opts)
+	   const char *opts,
+	   const char *src)
 {
 	Mount *mnt;
 
@@ -509,6 +512,8 @@ new_mount (const char *mountpoint,
 
 	mnt->needs_mtab = FALSE;
 
+	if (src)
+		mnt->src = NIH_MUST (nih_strdup (mounts, src));
 	update_mount (mnt, device, check, type, opts);
 
 	return mnt;
@@ -548,8 +553,20 @@ update_mount (Mount *     mnt,
 		} else if (! strncmp (mnt->device, "LABEL=", 6)) {
 			dequote (mnt->device + 6);
 		} else {
+			char *colon;
 			dequote (mnt->device);
-			strip_slashes (mnt->device);
+			/* If our device name is in host:/path format, as is
+			 * commonly used for network filesystems, don't strip
+			 * trailing slashes if this is the entire path.  We
+			 * look for the colon starting from the end, so that
+			 * we correctly handle IPv6 addresses for the host
+			 * part.
+			 */
+			if ((colon = strrchr (mnt->device,':')) != NULL
+			    && colon[1] == '/')
+				strip_slashes (colon + 2);
+			else
+				strip_slashes (mnt->device);
 		}
 	}
 
@@ -722,7 +739,7 @@ parse_fstab (const char *filename)
 			continue;
 
 		mnt = find_mount (mntent->mnt_dir);
-		if (mnt
+		if (mnt && (!mnt->src || strcmp (mnt->src, filename))
 		    && strcmp (mntent->mnt_type, "swap")) {
 			update_mount (mnt,
 				      mntent->mnt_fsname,
@@ -730,11 +747,12 @@ parse_fstab (const char *filename)
 				      mntent->mnt_type,
 				      mntent->mnt_opts);
 		} else {
-			mnt = new_mount (mntent->mnt_dir,
-					 mntent->mnt_fsname,
-					 mntent->mnt_passno != 0,
-					 mntent->mnt_type,
-					 mntent->mnt_opts);
+			new_mount (mntent->mnt_dir,
+				   mntent->mnt_fsname,
+				   mntent->mnt_passno != 0,
+				   mntent->mnt_type,
+				   mntent->mnt_opts,
+				   filename);
 		}
 	}
 
@@ -895,7 +913,8 @@ parse_mountinfo_file (int reparsed)
 				mnt->mounted = FALSE;
 
 		} else {
-			mnt = new_mount (mountpoint, device, FALSE, type, opts);
+			mnt = new_mount (mountpoint, device, FALSE, type, opts,
+			                 NULL);
 			mnt->mount_opts = opts;
 		}
 
@@ -1151,7 +1170,7 @@ mount_policy (void)
 		}
 	}
 
- 	NIH_LIST_FOREACH (mounts, iter) {
+	for (NihList *iter = mounts->prev; iter != mounts; iter = iter->prev) {
 		Mount *mnt = (Mount *)iter;
 		Mount *mount_parent = NULL;
 		Mount *device_parent = NULL;
@@ -1163,9 +1182,21 @@ mount_policy (void)
 		 */
 		NIH_LIST_FOREACH (mounts, iter) {
 			Mount *other = (Mount *)iter;
+			int is_dep = 0;
 
 			/* Skip this mount entry */
 			if (other == mnt)
+				continue;
+
+			/* Since multiple mounts can have the same mount point,
+			 * we check here if the target already has us as a
+			 * dep to avoid a circular dependency. */
+			NIH_LIST_FOREACH (&(other->deps), iter) {
+				NihListEntry *dep = (NihListEntry *)iter;
+				if (dep->data == mnt)
+					is_dep = 1;
+			}
+			if (is_dep)
 				continue;
 
 			/* Is this a parent of our mountpoint? */
@@ -1311,50 +1342,65 @@ void
 tag_mount (Mount *mnt,
 	   Tag    tag)
 {
+	Tag initial_tag = mnt->tag;
+
 	nih_assert (mnt != NULL);
 
-	/* If no tag is given, work it out from the device type */
-	if (tag == TAG_UNKNOWN) {
+	switch (tag) {
+	case TAG_UNKNOWN:
+	case TAG_LOCAL:
+	case TAG_REMOTE:
+	case TAG_NOWAIT:
+		break;
+	default:
+		/* Not an inheritable tag. */
+		nih_assert_not_reached ();
+	}
+
+	/* First time we're asked about this mount, figure out its
+	 * intrinsic tag from the device type */
+	if (mnt->tag == TAG_UNKNOWN) {
 		if (! strcmp (mnt->type, "swap")) {
-			tag = TAG_SWAP;
+			mnt->tag = TAG_SWAP;
 		} else if (! strcmp (mnt->mountpoint, "/")) {
 			nih_debug ("%s is root filesystem", MOUNT_NAME (mnt));
-			tag = TAG_LOCAL;
+			mnt->tag = TAG_LOCAL;
 		} else if (is_remote (mnt)) {
-			if ((! strcmp (mnt->mountpoint, "/usr"))
-			    || (! strcmp (mnt->mountpoint, "/var"))
-			    || (! strncmp (mnt->mountpoint, "/usr/", 5))
-			    || (! strncmp (mnt->mountpoint, "/var/", 5))
-			    || (has_option (mnt, "bootwait", FALSE)))
+			if (((! strcmp (mnt->mountpoint, "/usr"))
+			     || (! strcmp (mnt->mountpoint, "/var"))
+			     || (! strncmp (mnt->mountpoint, "/usr/", 5))
+			     || (! strncmp (mnt->mountpoint, "/var/", 5))
+			     || (has_option (mnt, "bootwait", FALSE)))
+			    && ! has_option (mnt, "nobootwait", FALSE))
 			{
-				tag = TAG_REMOTE;
+				mnt->tag = TAG_REMOTE;
 			} else {
-				tag = TAG_NOWAIT;
+				mnt->tag = TAG_NOWAIT;
 			}
 		} else if (mnt->nodev
 			   && strcmp (mnt->type, "fuse")) {
 			if (! has_option (mnt, "nobootwait", FALSE)) {
-				tag = TAG_VIRTUAL;
+				mnt->tag = TAG_VIRTUAL;
 			} else {
-				tag = TAG_NOWAIT;
+				mnt->tag = TAG_NOWAIT;
 			}
 		} else {
 			if (! has_option (mnt, "nobootwait", FALSE)) {
 				if ( has_option (mnt, "timeout", FALSE))
 				{
-					tag = TAG_TIMEOUT; 
+					mnt->tag = TAG_TIMEOUT; 
 				}
 				else
-					tag = TAG_LOCAL;
-	
+					mnt->tag = TAG_LOCAL;
+
 			} else {
-				tag = TAG_NOWAIT;
+				mnt->tag = TAG_NOWAIT;
 			}
 		}
 	}
 
-	/* If no tag is set, default it from our dependencies */
-	if (mnt->tag == TAG_UNKNOWN) {
+	/* If no tag is passed, default it from our dependencies */
+	if (tag == TAG_UNKNOWN) {
 		NIH_LIST_FOREACH (&mnt->deps, dep_iter) {
 			NihListEntry *dep_entry = (NihListEntry *)dep_iter;
 			Mount *       dep = (Mount *)dep_entry->data;
@@ -1366,81 +1412,70 @@ tag_mount (Mount *mnt,
 			    && strcmp (mnt->type, "none"))
 				continue;
 
-			if ((dep->tag == TAG_LOCAL)
-			    && (mnt->tag != TAG_REMOTE))
-				mnt->tag = TAG_LOCAL;
-			if ((dep->tag == TAG_TIMEOUT)
-			    && (mnt->tag != TAG_REMOTE))
-				mnt->tag = TAG_LOCAL;
-			if (dep->tag == TAG_REMOTE)
-				mnt->tag = TAG_REMOTE;
+			if (dep->tag == TAG_NOWAIT)
+				tag = TAG_NOWAIT;
+			if ((dep->tag == TAG_REMOTE)
+			    && (tag != TAG_NOWAIT))
+				tag = TAG_REMOTE;
+			if (((dep->tag == TAG_LOCAL)
+			     || (dep->tag == TAG_TIMEOUT))
+			    && (tag != TAG_REMOTE)
+			    && (tag != TAG_NOWAIT))
+				tag = TAG_LOCAL;
 		}
 	}
 
-	/* Don't override a more restrictive tag already set from a parent
-	 * mountpoint.
-	 */
-	if ((tag == TAG_VIRTUAL)
-	    && (mnt->tag == TAG_REMOTE)) {
-		nih_debug ("%s is not virtual, inherited remote",
-			   MOUNT_NAME (mnt));
-		return;
-	}
+	/* Don't override a more restrictive tag already set. */
+	if (mnt->tag == TAG_NOWAIT)
+		tag = TAG_NOWAIT;
+	if ((mnt->tag == TAG_REMOTE)
+	    && (tag != TAG_NOWAIT))
+		tag = TAG_REMOTE;
+	if (((mnt->tag == TAG_LOCAL)
+	     || (mnt->tag == TAG_TIMEOUT))
+	    && (tag != TAG_REMOTE)
+	    && (tag != TAG_NOWAIT))
+		tag = TAG_LOCAL;
 
-	if ((tag == TAG_VIRTUAL)
-	    && (mnt->tag == TAG_LOCAL)) {
-		nih_debug ("%s is not virtual, inherited local",
-			   MOUNT_NAME (mnt));
-		return;
-	}
+	/* Set the tag, then set it on any mount point that depends on this
+	 * one. */
+	if (tag != TAG_UNKNOWN)
+		mnt->tag = tag;
 
-	if ((tag == TAG_VIRTUAL)
-	    && (mnt->tag == TAG_TIMEOUT)) {
-		nih_debug ("%s is not virtual, inherited local (with timeout)",
-			   MOUNT_NAME (mnt));
-		return;
-	}
-
-	if ((tag == TAG_LOCAL)
-	    && (mnt->tag == TAG_REMOTE)) {
-		nih_debug ("%s is not local, inherited remote",
-			   MOUNT_NAME (mnt));
-	}
-
-	if ((tag == TAG_TIMEOUT)
-	    && (mnt->tag == TAG_REMOTE)) {
-		nih_debug ("%s is not local (with timeout), inherited remote",
-			   MOUNT_NAME (mnt));
-	}
-
-	/* Set the tag, then if it's one we'd normally inherit, set it on
-	 * any mount point that depends on this one.
-	 */
-	mnt->tag = tag;
+	tag = mnt->tag;
 
 	/* TAG_TIMEOUT is TAG_LOCAL with a timeout. timeout cannot be
 	 * inherited but local could be */
 	if (tag == TAG_TIMEOUT)
 		tag = TAG_LOCAL;
+	if (initial_tag == TAG_TIMEOUT)
+		initial_tag = TAG_LOCAL;
 
-	if ((tag == TAG_LOCAL)
-	    || (tag == TAG_REMOTE)) {
-		NIH_LIST_FOREACH (mounts, iter) {
-			Mount *dep = (Mount *)iter;
+	/* Not inheritable, don't recurse */
+	if ((tag != TAG_LOCAL)
+	    && (tag != TAG_REMOTE)
+	    && (tag != TAG_NOWAIT))
+		return;
 
-			/* Do not inherit from the root filesystem unless
-			 * this is a placeholder.
-			 */
-			if ((! strcmp (mnt->mountpoint, "/"))
-			    && strcmp (dep->type, "none"))
-				continue;
+	/* No changes, so don't recurse. */
+	if (tag == initial_tag)
+		return;
 
-			NIH_LIST_FOREACH (&dep->deps, dep_iter) {
-				NihListEntry *dep_entry = (NihListEntry *)dep_iter;
+	NIH_LIST_FOREACH (mounts, iter) {
+		Mount *dep = (Mount *)iter;
 
-				if (dep_entry->data == mnt)
-					tag_mount (dep, tag);
-			}
+		/* Do not inherit from the root filesystem unless
+		 * this is a placeholder.
+		 */
+		if ((! strcmp (mnt->mountpoint, "/"))
+		    && strcmp (dep->type, "none"))
+			continue;
+
+		NIH_LIST_FOREACH (&dep->deps, dep_iter) {
+			NihListEntry *dep_entry = (NihListEntry *)dep_iter;
+
+			if (dep_entry->data == mnt)
+				tag_mount (dep, tag);
 		}
 	}
 }
@@ -1482,7 +1517,7 @@ mounted (Mount *mnt)
 		 * /dev/root symlink for the right device too ;-)
 		 */
 		root = find_mount ("/");
-		if (root->mounted_dev != (dev_t)-1) {
+		if (root && root->mounted_dev != (dev_t)-1) {
 			FILE *rules;
 
 			mask = umask (0022);
@@ -1512,7 +1547,8 @@ void
 skip_mount (Mount *mnt)
 {
 	nih_assert (mnt != NULL);
-	nih_assert ((! mnt->mounted) || needs_remount (mnt));
+	if (mnt->mounted && ! needs_remount (mnt))
+		return;
 
 	nih_debug ("%s", MOUNT_NAME (mnt));
 
@@ -1858,6 +1894,11 @@ try_mount (Mount *mnt,
 		return;
 	}
 
+	/* A mount is already in progress for this mount point; do not
+	 * send an extra event, which will just confuse things
+	 */
+	if (mnt->mount_pid > 0)
+		return;
 	/* Queue a filesystem check if not yet ready, otherwise emit mounting
 	 * event (callback will run swapon or mount as appropriate).
 	 */
@@ -2092,8 +2133,7 @@ spawn (Mount *         mnt,
 	proc->mnt = mnt;
 
 	proc->args = args;
-	if (proc->args)
-		nih_ref (proc->args, proc);
+	nih_ref (proc->args, proc);
 
 	proc->pid = pid;
 	proc->handler = handler;
@@ -3290,6 +3330,8 @@ boredom_timeout (void *    data,
 			continue;
 		if (mnt->mount_pid > 0)
 			continue;
+		if (mnt->pending_call != NULL)
+			continue;
 		if (mnt->tag == TAG_NOWAIT)
 			continue;
 		if (mnt->tag == TAG_SKIPPED)
@@ -3380,7 +3422,7 @@ plymouth_progress (Mount *mnt,
 	 */
 	update = NIH_MUST (nih_sprintf (NULL, "fsck:%s:%d:%s",
 					MOUNT_NAME (mnt), progress,
-					_("Checking disk %1$d of %2$d (%3$d %% complete)")));
+					_("Checking disk %1$d of %2$d (%3$d%% complete)")));
 
 	ply_boot_client_update_daemon (ply_boot_client, update,
 				       plymouth_response,
@@ -3847,7 +3889,7 @@ change_mount_device (const char *devname,
 				/* Change only if the requested device is
 				 * really any different than whats stored
 				 */
-				if (!strcmp (mnt->device, devname)) {
+				if (strcmp (mnt->device, devname)) {
 					char * newdev;
 					ret = 0;
 					newdev  = nih_strdup (mounts, devname);
@@ -3993,6 +4035,12 @@ main (int   argc,
 		exit (EXIT_ERROR);
 	}
 
+	/* SIGUSR1 tells us that a network device came up.  Install
+           the handler before daemonising so that the mountall-net job
+           won't kill us by sending USR1. */
+	nih_signal_set_handler (SIGUSR1, nih_signal_handler);
+	NIH_MUST (nih_signal_add_handler (NULL, SIGUSR1, usr1_handler, NULL));
+
 	/* Become daemon */
 	if (daemonise) {
 		pid_t pid;
@@ -4045,10 +4093,6 @@ main (int   argc,
 	/* Handle TERM signal gracefully */
 	nih_signal_set_handler (SIGTERM, nih_signal_handler);
 	NIH_MUST (nih_signal_add_handler (NULL, SIGTERM, nih_main_term_signal, NULL));
-
-	/* SIGUSR1 tells us that a network device came up */
-	nih_signal_set_handler (SIGUSR1, nih_signal_handler);
-	NIH_MUST (nih_signal_add_handler (NULL, SIGUSR1, usr1_handler, NULL));
 
 	/* Check for force-fsck on the kernel command line */
 	cmdline = fopen ("/proc/cmdline", "r");

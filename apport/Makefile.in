@@ -78,9 +78,8 @@ PRE_UNINSTALL = :
 POST_UNINSTALL = :
 build_triplet = @build@
 host_triplet = @host@
-subdir = dbus
-DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am \
-	$(dist_dbus_config_DATA)
+subdir = apport
+DIST_COMMON = $(srcdir)/Makefile.in $(srcdir)/Makefile.am
 ACLOCAL_M4 = $(top_srcdir)/aclocal.m4
 am__aclocal_m4_deps = $(top_srcdir)/m4/codeset.m4 \
 	$(top_srcdir)/m4/gettext.m4 $(top_srcdir)/m4/glibc2.m4 \
@@ -154,8 +153,8 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-am__installdirs = "$(DESTDIR)$(dbus_configdir)"
-DATA = $(dist_dbus_config_DATA)
+am__installdirs = "$(DESTDIR)$(apportdir)"
+DATA = $(apport_DATA)
 am__tagged_files = $(HEADERS) $(SOURCES) $(TAGS_FILES) $(LISP)
 DISTFILES = $(DIST_COMMON) $(DIST_SOURCES) $(TEXINFOS) $(EXTRA_DIST)
 ACLOCAL = @ACLOCAL@
@@ -334,12 +333,8 @@ target_alias = @target_alias@
 top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
-dbus_configdir = $(sysconfdir)/dbus-1/system.d
-dist_dbus_config_DATA = Mountall.Server.conf
-EXTRA_DIST = \
-	upstart.h \
-	com.ubuntu.Upstart.xml
-
+apportdir = /usr/share/apport/package-hooks/
+apport_DATA = mountall.py
 all: all-am
 
 .SUFFIXES:
@@ -352,9 +347,9 @@ $(srcdir)/Makefile.in: @MAINTAINER_MODE_TRUE@ $(srcdir)/Makefile.am  $(am__confi
 	      exit 1;; \
 	  esac; \
 	done; \
-	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign dbus/Makefile'; \
+	echo ' cd $(top_srcdir) && $(AUTOMAKE) --foreign apport/Makefile'; \
 	$(am__cd) $(top_srcdir) && \
-	  $(AUTOMAKE) --foreign dbus/Makefile
+	  $(AUTOMAKE) --foreign apport/Makefile
 .PRECIOUS: Makefile
 Makefile: $(srcdir)/Makefile.in $(top_builddir)/config.status
 	@case '$?' in \
@@ -379,27 +374,27 @@ mostlyclean-libtool:
 
 clean-libtool:
 	-rm -rf .libs _libs
-install-dist_dbus_configDATA: $(dist_dbus_config_DATA)
+install-apportDATA: $(apport_DATA)
 	@$(NORMAL_INSTALL)
-	@list='$(dist_dbus_config_DATA)'; test -n "$(dbus_configdir)" || list=; \
+	@list='$(apport_DATA)'; test -n "$(apportdir)" || list=; \
 	if test -n "$$list"; then \
-	  echo " $(MKDIR_P) '$(DESTDIR)$(dbus_configdir)'"; \
-	  $(MKDIR_P) "$(DESTDIR)$(dbus_configdir)" || exit 1; \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(apportdir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(apportdir)" || exit 1; \
 	fi; \
 	for p in $$list; do \
 	  if test -f "$$p"; then d=; else d="$(srcdir)/"; fi; \
 	  echo "$$d$$p"; \
 	done | $(am__base_list) | \
 	while read files; do \
-	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(dbus_configdir)'"; \
-	  $(INSTALL_DATA) $$files "$(DESTDIR)$(dbus_configdir)" || exit $$?; \
+	  echo " $(INSTALL_DATA) $$files '$(DESTDIR)$(apportdir)'"; \
+	  $(INSTALL_DATA) $$files "$(DESTDIR)$(apportdir)" || exit $$?; \
 	done
 
-uninstall-dist_dbus_configDATA:
+uninstall-apportDATA:
 	@$(NORMAL_UNINSTALL)
-	@list='$(dist_dbus_config_DATA)'; test -n "$(dbus_configdir)" || list=; \
+	@list='$(apport_DATA)'; test -n "$(apportdir)" || list=; \
 	files=`for p in $$list; do echo $$p; done | sed -e 's|^.*/||'`; \
-	dir='$(DESTDIR)$(dbus_configdir)'; $(am__uninstall_files_from_dir)
+	dir='$(DESTDIR)$(apportdir)'; $(am__uninstall_files_from_dir)
 tags TAGS:
 
 ctags CTAGS:
@@ -441,7 +436,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(DATA)
 installdirs:
-	for dir in "$(DESTDIR)$(dbus_configdir)"; do \
+	for dir in "$(DESTDIR)$(apportdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -494,7 +489,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-dist_dbus_configDATA
+install-data-am: install-apportDATA
 
 install-dvi: install-dvi-am
 
@@ -538,22 +533,22 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-dist_dbus_configDATA
+uninstall-am: uninstall-apportDATA
 
 .MAKE: install-am install-strip
 
 .PHONY: all all-am check check-am clean clean-generic clean-libtool \
 	cscopelist-am ctags-am distclean distclean-generic \
 	distclean-libtool distdir dvi dvi-am html html-am info info-am \
-	install install-am install-data install-data-am \
-	install-dist_dbus_configDATA install-dvi install-dvi-am \
-	install-exec install-exec-am install-html install-html-am \
-	install-info install-info-am install-man install-pdf \
-	install-pdf-am install-ps install-ps-am install-strip \
-	installcheck installcheck-am installdirs maintainer-clean \
+	install install-am install-apportDATA install-data \
+	install-data-am install-dvi install-dvi-am install-exec \
+	install-exec-am install-html install-html-am install-info \
+	install-info-am install-man install-pdf install-pdf-am \
+	install-ps install-ps-am install-strip installcheck \
+	installcheck-am installdirs maintainer-clean \
 	maintainer-clean-generic mostlyclean mostlyclean-generic \
 	mostlyclean-libtool pdf pdf-am ps ps-am tags-am uninstall \
-	uninstall-am uninstall-dist_dbus_configDATA
+	uninstall-am uninstall-apportDATA
 
 
 # Tell versions [3.59,3.63) of GNU make to not export all variables.
