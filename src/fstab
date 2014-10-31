@@ -19,4 +19,4 @@ none            /dev/pts                  devpts          noexec,nosuid,gid=tty,
 none            /tmp                      none            defaults                          0 0
 none            /run                      tmpfs           noexec,nosuid,size=10%,mode=0755  0 0
 none            /run/lock                 tmpfs           nodev,noexec,nosuid,size=5242880  0 0
-none            /run/shm                  tmpfs           nosuid,nodev                      0 0
+none            /run/shm                  tmpfs           noexec,nosuid,nodev               0 0

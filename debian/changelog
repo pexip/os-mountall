@@ -1,3 +1,9 @@
+mountall (2.36.4pexip2) pexip; urgency=low
+
+  * Mount /run/shm noexec
+
+ -- John-Mark Bell <jmb@pexip.com>  Thu, 02 Oct 2014 21:34:37 +0100
+
 mountall (2.36.4pexip1) pexip; urgency=low
 
   * Prepare Pexip packaging
