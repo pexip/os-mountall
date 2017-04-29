@@ -2,7 +2,7 @@ mountall (2.54pexip1) pexip; urgency=low
 
   * Migrate to Jessie
   * Remaining changes:
-    - src/fstab: mount /run/shm noexec
+    - src/fstab: mount /run/shm noexec, remove pstore -- not used
 
  -- John-Mark Bell <jmb@pexip.com>  Wed, 22 Mar 2017 18:56:04 +0000
 
